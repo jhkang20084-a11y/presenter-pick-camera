@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>발표자 추첨 카메라</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Noto+Sans+KR:wght@500;700;900&display=swap" rel="stylesheet">
+<style>
+:root{--gold:#ffc93c;--red:#ff3b5c;--cyan:#22e4ff}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#000;color:#fff;font-family:'Noto Sans KR',system-ui,sans-serif;overflow:hidden;user-select:none}
+#view{position:fixed;inset:0;width:100%;height:100%;display:block}
+#hidden{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+
+/* 시작 화면 */
+#start{position:fixed;inset:0;display:grid;place-items:center;text-align:center;background:radial-gradient(circle at 50% 45%,#1a1440,#05060f 70%);z-index:20}
+#start h1{font-family:'Black Han Sans';font-weight:400;font-size:clamp(40px,7vw,110px);margin:0;letter-spacing:.02em;
+  background:linear-gradient(180deg,#fff,#ffd36b);-webkit-background-clip:text;background-clip:text;color:transparent}
+#start p{color:#9aa4c8;margin:.6em 0 2em;font-size:clamp(14px,1.4vw,20px)}
+#start small{display:block;color:#5f6890;margin-top:2em;font-size:13px}
+
+.go{border:none;cursor:pointer;font-family:'Black Han Sans';font-size:clamp(22px,2.4vw,40px);color:#fff;padding:.55em 1.6em;border-radius:999px;
+  background:linear-gradient(135deg,#ff3b8b,#a020ff);box-shadow:0 10px 40px rgba(255,59,139,.5),inset 0 -4px 0 rgba(0,0,0,.2);transition:transform .15s}
+.go:hover{transform:scale(1.05)}
+.go:active{transform:scale(.97)}
+
+/* 하단 조작부 */
+#bar{position:fixed;left:50%;bottom:4vh;transform:translateX(-50%);display:flex;align-items:center;gap:14px;z-index:10;transition:opacity .4s,transform .4s}
+#bar.hide{opacity:0;pointer-events:none;transform:translate(-50%,30px)}
+#count{min-width:5.5em;text-align:center;padding:.5em 1em;border-radius:999px;background:rgba(0,0,0,.55);backdrop-filter:blur(8px);font-weight:700;font-size:clamp(14px,1.3vw,20px)}
+#fs{width:52px;height:52px;border-radius:50%;border:none;cursor:pointer;background:rgba(0,0,0,.55);color:#fff;font-size:22px;backdrop-filter:blur(8px)}
+
+/* 자막 */
+#cap{position:fixed;left:0;right:0;bottom:12vh;text-align:center;z-index:9;pointer-events:none;font-family:'Black Han Sans';
+  font-size:clamp(34px,6vw,110px);text-shadow:0 0 30px rgba(0,0,0,.9),0 4px 0 rgba(0,0,0,.5);opacity:0;transition:opacity .25s}
+#cap.on{opacity:1}
+#cap.win{color:var(--gold);font-size:clamp(48px,9vw,170px);text-shadow:0 0 40px rgba(255,201,60,.7),0 6px 0 rgba(0,0,0,.5);animation:winpop .8s cubic-bezier(.2,1.6,.4,1)}
+@keyframes winpop{from{transform:scale(2.2);opacity:0}}
+#flash{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:8}
+#flash.go{animation:flash .6s ease-out}
+@keyframes flash{from{opacity:.85}to{opacity:0}}
+#confetti{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:11}
+#toast{position:fixed;top:4vh;left:50%;transform:translateX(-50%);padding:.7em 1.3em;border-radius:999px;background:rgba(0,0,0,.75);backdrop-filter:blur(8px);
+  font-weight:700;font-size:clamp(14px,1.3vw,20px);z-index:30;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap}
+#toast.on{opacity:1}
+</style>
+</head>
+<body>
+<video id="hidden" playsinline muted></video>
+<canvas id="view"></canvas>
+<div id="flash"></div>
+<div id="cap"></div>
+<canvas id="confetti"></canvas>
+
+<div id="bar" class="hide">
+  <div id="count">👀 0명</div>
+  <button class="go" id="drawBtn">🎲 발표자 뽑기</button>
+  <button id="fs" title="전체화면 (F)">⛶</button>
+</div>
+
+<div id="start">
+  <div>
+    <h1>누가 발표할까?</h1>
+    <p>카메라에 비친 얼굴 중에서 발표자를 뽑습니다</p>
+    <button class="go" id="startBtn">📷 카메라 시작</button>
+    <small>영상은 이 브라우저 안에서만 처리되며 저장·전송되지 않습니다</small>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script type="module">
+/* =================== 설정 =================== */
+const MP_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite';
+const MIN_CONF = 0.43;     // 얼굴 감지 기준 (낮을수록 가려진 얼굴도 시도)
+const GRACE_MS = 2500;     // 얼굴이 잠시 가려져도 유지하는 시간
+const VIS_MS = 900;        // 이 시간 안에 감지되면 "지금 화면에 보이는 얼굴"
+
+const $ = s => document.querySelector(s);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const randInt = n => { const a = new Uint32Array(1); crypto.getRandomValues(a); return a[0] % n; };
+const video = $('#hidden'), view = $('#view'), vctx = view.getContext('2d');
+
+const S = {
+  stream: null, detector: null,
+  tracks: [], nextTid: 1, people: [], nextPid: 1,
+  mode: 'idle',            // idle | intro | roulette | win
+  focusPid: null, zoomMult: 2.6, camSpeed: .08,
+  cam: null,               // 현재 카메라 프레이밍(영상 픽셀 좌표)
+  winT0: 0,
+};
+
+/* =================== 사운드 =================== */
+let AC, master;
+function ac() { if (!AC) { AC = new (window.AudioContext || window.webkitAudioContext)(); master = AC.createGain(); master.gain.value = .6; master.connect(AC.destination); } if (AC.state === 'suspended') AC.resume(); return AC; }
+function tone(f, d, type = 'sine', v = .3, when = 0, f2 = null) {
+  const c = ac(), t = c.currentTime + when, o = c.createOscillator(), g = c.createGain();
+  o.type = type; o.frequency.setValueAtTime(f, t); if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + d);
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(v, t + .01); g.gain.exponentialRampToValueAtTime(.0001, t + d);
+  o.connect(g).connect(master); o.start(t); o.stop(t + d + .05);
+}
+function noise(d, v = .3, when = 0, type = 'bandpass', freq = 1200, q = 1, f2 = null) {
+  const c = ac(), t = c.currentTime + when, len = Math.max(1, c.sampleRate * d | 0), buf = c.createBuffer(1, len, c.sampleRate), ch = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) ch[i] = Math.random() * 2 - 1;
+  const s = c.createBufferSource(); s.buffer = buf; const fl = c.createBiquadFilter(); fl.type = type; fl.frequency.setValueAtTime(freq, t); fl.Q.value = q;
+  if (f2) fl.frequency.exponentialRampToValueAtTime(f2, t + d);
+  const g = c.createGain(); g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(.0001, t + d);
+  s.connect(fl).connect(g).connect(master); s.start(t); s.stop(t + d + .05);
+}
+const sfx = {
+  whoosh() { noise(.45, .4, 0, 'bandpass', 400, 1.2, 3500); },
+  tick(p) { tone(500 + p * 700, .07, 'square', .09); noise(.04, .15, 0, 'highpass', 5000); },
+  heart(v = .5) { tone(65, .18, 'sine', v, 0, 40); tone(60, .16, 'sine', v * .7, .2, 38); },
+  drumroll(d) { for (let t = 0; t < d; t += .05) noise(.06, .08 + .22 * (t / d), t, 'bandpass', 900, .8); },
+  riser(d) { tone(120, d, 'sawtooth', .07, 0, 900); noise(d, .12, 0, 'bandpass', 300, 2, 5000); },
+  hit() { tone(55, .9, 'sine', .7, 0, 30); noise(.8, .5, 0, 'lowpass', 300); noise(1.5, .3, 0, 'highpass', 6000); },
+  fanfare() {
+    [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => { tone(f, .25, 'sawtooth', .12, .15 + i * .11); tone(f / 2, .25, 'triangle', .14, .15 + i * .11); });
+    [523.25, 659.25, 783.99, 1046.5].forEach(f => tone(f, 1.4, 'sawtooth', .06, .65)); tone(1046.5, 1.5, 'triangle', .14, .65);
+    for (let i = 0; i < 80; i++) noise(.04 + Math.random() * .04, .08 + Math.random() * .1, .7 + Math.random() * 2.3, 'bandpass', 1200 + Math.random() * 1800, 1.5);
+  },
+  err() { tone(160, .3, 'sawtooth', .15); tone(120, .3, 'sawtooth', .12, .12); },
+};
+
+/* =================== 얼굴 인식 =================== */
+async function loadModel() {
+  const m = await import(MP_URL);
+  const FD = m.FaceDetector || m.default?.FaceDetector, FR = m.FilesetResolver || m.default?.FilesetResolver;
+  const fs = await FR.forVisionTasks(MP_URL + '/wasm');
+  const make = delegate => FD.createFromOptions(fs, { baseOptions: { modelAssetPath: MODEL_URL, delegate }, runningMode: 'IMAGE', minDetectionConfidence: MIN_CONF, minSuppressionThreshold: .3 });
+  try { S.detector = await make('GPU'); } catch { S.detector = await make('CPU'); }
+}
+
+const work = document.createElement('canvas'), wctx = work.getContext('2d', { willReadFrequently: true });
+const probe = document.createElement('canvas'); probe.width = 32; probe.height = 18;
+const pctx = probe.getContext('2d', { willReadFrequently: true });
+const HAS_FILTER = 'filter' in wctx, DET = 384;
+let gain = 1, frameNo = 0, lastDet = 0, bigTiles = [], smallTiles = [], tileKey = '', bi = 0, si = 0;
+
+function buildTiles(vw, vh) {
+  const key = vw + 'x' + vh; if (key === tileKey) return; tileKey = key;
+  const grid = s => {
+    const nx = vw > s ? Math.ceil((vw - s) / (s * .65)) + 1 : 1, ny = vh > s ? Math.ceil((vh - s) / (s * .65)) + 1 : 1, out = [];
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++)
+      out.push([(nx > 1 ? (vw - s) * i / (nx - 1) : (vw - s) / 2) / vw, (ny > 1 ? (vh - s) * j / (ny - 1) : (vh - s) / 2) / vh, s / vw, s / vh]);
+    return out;
+  };
+  const m = Math.min(vw, vh); bigTiles = grid(m); smallTiles = grid(m * .5);
+  smallTiles.sort((a, b) => Math.abs(a[1] + a[3] / 2 - .5) - Math.abs(b[1] + b[3] / 2 - .5));
+}
+function measureLight() {
+  pctx.drawImage(video, 0, 0, 32, 18); const d = pctx.getImageData(0, 0, 32, 18).data; let s = 0;
+  for (let i = 0; i < d.length; i += 4) s += d[i] * .299 + d[i + 1] * .587 + d[i + 2] * .114;
+  const l = s / (d.length / 4); gain = l < 95 ? clamp(115 / Math.max(l, 15), 1, 2) : 1;
+}
+let lut = null, lutG = 0;
+function runOn(sx, sy, sw, sh, boost) {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (work.width !== DET) { work.width = DET; work.height = DET; }
+  const useB = boost && gain > 1.05;
+  wctx.filter = useB && HAS_FILTER ? `brightness(${gain.toFixed(2)}) contrast(${(1 + (gain - 1) * .25).toFixed(2)})` : 'none';
+  wctx.drawImage(video, sx * vw, sy * vh, sw * vw, sh * vh, 0, 0, DET, DET); wctx.filter = 'none';
+  if (useB && !HAS_FILTER) {
+    if (lutG !== gain) { lut = new Uint8ClampedArray(256); for (let i = 0; i < 256; i++) lut[i] = 255 * Math.pow(i / 255, 1 / gain); lutG = gain; }
+    const img = wctx.getImageData(0, 0, DET, DET), d = img.data; for (let i = 0; i < d.length; i += 4) { d[i] = lut[d[i]]; d[i + 1] = lut[d[i + 1]]; d[i + 2] = lut[d[i + 2]]; } wctx.putImageData(img, 0, 0);
+  }
+  const squash = Math.abs((sw * vw) / (sh * vh) - 1) > .05;
+  return (S.detector.detect(work).detections || []).map(d => {
+    const b = d.boundingBox, cx = (sx + ((b.originX + b.width / 2) / DET) * sw) * vw, cy = (sy + ((b.originY + b.height / 2) / DET) * sh) * vh;
+    const ph = (b.height / DET) * sh * vh; let pw = (b.width / DET) * sw * vw; if (squash) pw = ph;
+    return { x: (cx - pw / 2) / vw, y: (cy - ph / 2) / vh, w: pw / vw, h: ph / vh, s: d.categories?.[0]?.score ?? .5, pr: ph / pw };
+  }).filter(d => d.w > .006 && d.w < .9 && d.pr < 2.2 && d.pr > .45);
+}
+const iou = (a, b) => { const x1 = Math.max(a.x, b.x), y1 = Math.max(a.y, b.y), x2 = Math.min(a.x + a.w, b.x + b.w), y2 = Math.min(a.y + a.h, b.y + b.h), i = Math.max(0, x2 - x1) * Math.max(0, y2 - y1); return i / (a.w * a.h + b.w * b.h - i + 1e-9); };
+const ctr = b => [b.x + b.w / 2, b.y + b.h / 2];
+function nms(list) {
+  list.sort((a, b) => b.s - a.s); const out = [];
+  for (const d of list) { const [cx, cy] = ctr(d); if (!out.some(o => iou(o, d) > .3 || (cx > o.x && cx < o.x + o.w && cy > o.y && cy < o.y + o.h))) out.push(d); }
+  return out;
+}
+function detect(now) {
+  if (!S.detector || video.readyState < 2 || !video.videoWidth || now - lastDet < 30) return;
+  lastDet = now; frameNo++; if (frameNo % 15 === 1) measureLight();
+  const vw = video.videoWidth, vh = video.videoHeight; buildTiles(vw, vh);
+  const boost = gain > 1.05 && frameNo % 2 === 0; let dets;
+  try {
+    dets = runOn(0, 0, 1, 1, false);
+    if (frameNo % 2) { const b = bigTiles[bi++ % bigTiles.length]; dets = dets.concat(runOn(b[0], b[1], b[2], b[3], boost)); }
+    const t = smallTiles[si++ % smallTiles.length]; dets = dets.concat(runOn(t[0], t[1], t[2], t[3], boost));
+    // 추적 중인 얼굴 주변 확대 재확인 (추첨 중 비추는 얼굴은 항상 포함)
+    const focus = S.tracks.slice().sort((a, b) => a.lastHit - b.lastHit).slice(0, 2);
+    const fp = S.focusPid && trackOfP(S.focusPid); if (fp && !focus.includes(fp)) focus[0] = fp;
+    for (const tr of focus) {
+      const side = clamp(Math.max(tr.box.w * vw, tr.box.h * vh) * 3.2, 120, Math.min(vw, vh));
+      if (side >= Math.min(vw, vh) * .95) continue;
+      const [cx, cy] = ctr(tr.box);
+      dets = dets.concat(runOn(clamp(cx * vw - side / 2, 0, vw - side) / vw, clamp(cy * vh - side / 2, 0, vh - side) / vh, side / vw, side / vh, boost));
+    }
+  } catch (e) { console.warn(e); return; }
+  updateTracks(nms(dets), now);
+}
+
+/* =================== 추적 (같은 사람 중복 방지 · 잠깐 가려져도 유지) =================== */
+function updateTracks(dets, now) {
+  const T = S.tracks, pairs = [];
+  T.forEach((t, ti) => dets.forEach((d, di) => {
+    const [ax, ay] = ctr(t.box), [bx, by] = ctr(d), size = Math.max(t.box.w, d.w, .05);
+    const dist = Math.hypot(ax - bx, (ay - by) * .9) / size, lim = .9 + Math.min(1.6, (now - t.lastHit) / 700);
+    const sr = Math.max(t.box.w, d.w) / Math.min(t.box.w, d.w);
+    if ((dist < lim || iou(t.box, d) > .2) && sr < 2.4) pairs.push([dist - iou(t.box, d), ti, di]);
+  }));
+  pairs.sort((a, b) => a[0] - b[0]);
+  const ut = new Set(), ud = new Set();
+  for (const [, ti, di] of pairs) {
+    if (ut.has(ti) || ud.has(di)) continue; ut.add(ti); ud.add(di);
+    const t = T[ti], d = dets[di], a = .55;
+    t.box = { x: t.box.x + (d.x - t.box.x) * a, y: t.box.y + (d.y - t.box.y) * a, w: t.box.w + (d.w - t.box.w) * a, h: t.box.h + (d.h - t.box.h) * a };
+    t.lastHit = now; t.hits.push(now);
+  }
+  dets.forEach((d, di) => {
+    if (ud.has(di)) return; const [cx, cy] = ctr(d);
+    if (!T.some(t => cx > t.box.x - t.box.w * .25 && cx < t.box.x + t.box.w * 1.25 && cy > t.box.y - t.box.h * .25 && cy < t.box.y + t.box.h * 1.25))
+      T.push({ id: S.nextTid++, box: { ...d }, firstSeen: now, lastHit: now, hits: [now], pid: null });
+  });
+  for (const t of T) while (t.hits.length && now - t.hits[0] > 2000) t.hits.shift();
+  for (let i = 0; i < T.length; i++) for (let j = i + 1; j < T.length; j++) {
+    const a = T[i], b = T[j]; if (a.dead || b.dead || iou(a.box, b.box) <= .35) continue;
+    const keep = a.pid || !b.pid ? a : b, drop = keep === a ? b : a;
+    if (drop.pid && !keep.pid) { keep.pid = drop.pid; getP(keep.pid).trackId = keep.id; drop.pid = null; } else detach(drop, now);
+    drop.dead = true;
+  }
+  S.tracks = T.filter(t => { if (t.dead) return false; if (now - t.lastHit > (t.pid ? GRACE_MS : 900)) { detach(t, now); return false; } return true; });
+  for (const t of S.tracks) {
+    if (!t.pid && now - t.firstSeen >= 650 && t.hits.length >= 3 && now - t.lastHit < 400) register(t, now);
+    if (t.pid) getP(t.pid).lastBox = { ...t.box };
+  }
+}
+function detach(t, now) { if (!t.pid) return; const p = getP(t.pid); if (p) { p.trackId = null; p.lostAt = now; } t.pid = null; }
+function register(t, now) {
+  const [cx, cy] = ctr(t.box); let best = null, bd = Infinity;
+  for (const p of S.people) {
+    if (p.trackId || !p.lastBox) continue;
+    const [px, py] = ctr(p.lastBox), d = Math.hypot(cx - px, cy - py), lim = now - p.lostAt < 6000 ? .32 : .16;
+    if (d < lim && d < bd) { bd = d; best = p; }
+  }
+  const p = best || (S.people.push({ id: S.nextPid++, picked: false, trackId: null, lastBox: null, lostAt: 0 }), S.people[S.people.length - 1]);
+  p.trackId = t.id; p.lastBox = { ...t.box }; t.pid = p.id;
+}
+const getP = id => S.people.find(p => p.id === id);
+const trackOfP = id => { const p = getP(id); return p && p.trackId ? S.tracks.find(t => t.id === p.trackId) : null; };
+const visible = (now = performance.now()) => S.people.filter(p => { const t = p.trackId && S.tracks.find(x => x.id === p.trackId); return t && now - t.lastHit < VIS_MS && t.hits.length >= 2; });
+
+/* =================== 카메라 프레이밍 =================== */
+function fullCrop() {
+  const vw = video.videoWidth, vh = video.videoHeight, A = view.width / view.height;
+  let w = vw, h = vw / A; if (h > vh) { h = vh; w = vh * A; }
+  return { x: (vw - w) / 2, y: (vh - h) / 2, w, h };
+}
+function faceCrop(box, mult) {
+  const vw = video.videoWidth, vh = video.videoHeight, A = view.width / view.height, full = fullCrop();
+  let h = clamp(Math.max(box.h * vh, box.w * vw / 1.0) * mult, Math.min(150, full.h), full.h), w = h * A;
+  if (w > full.w) { w = full.w; h = w / A; }
+  const cx = (box.x + box.w / 2) * vw, cy = (box.y + box.h / 2) * vh + box.h * vh * .1;
+  return { x: clamp(cx - w / 2, 0, vw - w), y: clamp(cy - h / 2, 0, vh - h), w, h };
+}
+function camTarget() {
+  if (S.focusPid) { const p = getP(S.focusPid), t = trackOfP(S.focusPid), b = t ? t.box : p?.lastBox; if (b) return faceCrop(b, S.zoomMult); }
+  return fullCrop();
+}
+// 영상 좌표 → 화면 좌표 (거울 모드)
+function toScreen(px, py) { const c = S.cam, W = view.width, H = view.height; return [W - (px - c.x) / c.w * W, (py - c.y) / c.h * H]; }
+
+/* =================== 렌더링 =================== */
+function brackets(x, y, w, h, len, lw, col) {
+  vctx.strokeStyle = col; vctx.lineWidth = lw; vctx.lineCap = 'round'; vctx.beginPath(); const l = Math.min(len, w / 3, h / 3);
+  vctx.moveTo(x, y + l); vctx.lineTo(x, y); vctx.lineTo(x + l, y); vctx.moveTo(x + w - l, y); vctx.lineTo(x + w, y); vctx.lineTo(x + w, y + l);
+  vctx.moveTo(x + w, y + h - l); vctx.lineTo(x + w, y + h); vctx.lineTo(x + w - l, y + h); vctx.moveTo(x + l, y + h); vctx.lineTo(x, y + h); vctx.lineTo(x, y + h - l); vctx.stroke();
+}
+function render(now) {
+  const dpr = Math.min(2, devicePixelRatio || 1), W = Math.round(innerWidth * dpr), H = Math.round(innerHeight * dpr);
+  if (view.width !== W || view.height !== H) { view.width = W; view.height = H; S.cam = null; }
+  vctx.fillStyle = '#000'; vctx.fillRect(0, 0, W, H);
+  if (!video.videoWidth) return;
+  const tgt = camTarget();
+  if (!S.cam) S.cam = { ...tgt };
+  const k = S.camSpeed; for (const key of ['x', 'y', 'w', 'h']) S.cam[key] += (tgt[key] - S.cam[key]) * k;
+  const c = S.cam;
+  vctx.save(); vctx.translate(W, 0); vctx.scale(-1, 1); vctx.drawImage(video, c.x, c.y, c.w, c.h, 0, 0, W, H); vctx.restore();
+
+  const vw = video.videoWidth, vh = video.videoHeight, u = Math.min(W, H) / 40;
+  if (S.mode === 'idle') {
+    // 인식된 얼굴에 은은한 표시
+    for (const t of S.tracks) {
+      if (!t.pid || now - t.lastHit > VIS_MS) continue;
+      const p = getP(t.pid); const [x1, y1] = toScreen((t.box.x + t.box.w) * vw, t.box.y * vh), [x2, y2] = toScreen(t.box.x * vw, (t.box.y + t.box.h) * vh);
+      const w = x2 - x1, h = y2 - y1, ph = (now / 1600) % 1;
+      vctx.strokeStyle = `rgba(34,228,255,${(1 - ph) * .45})`; vctx.lineWidth = 2 * dpr;
+      vctx.beginPath(); vctx.arc(x1 + w / 2, y1 + h / 2, Math.max(w, h) * (.6 + ph * .5), 0, Math.PI * 2); vctx.stroke();
+      brackets(x1, y1, w, h, u * 1.2, 2.5 * dpr, p.picked ? 'rgba(255,201,60,.9)' : 'rgba(34,228,255,.9)');
+      if (p.picked) { vctx.font = `${u * 1.3}px serif`; vctx.textAlign = 'center'; vctx.fillText('⭐', x1 + w / 2, y1 - u * .5); }
+    }
+  } else {
+    // 추첨 중: 비추는 얼굴 주변만 밝게(스포트라이트), 나머지는 어둡게
+    const t = S.focusPid && trackOfP(S.focusPid), b = t ? t.box : getP(S.focusPid)?.lastBox;
+    let sx = W / 2, sy = H / 2, r = Math.min(W, H) * .3;
+    if (b) { const [x1, y1] = toScreen((b.x + b.w) * vw, b.y * vh), [x2, y2] = toScreen(b.x * vw, (b.y + b.h) * vh); sx = (x1 + x2) / 2; sy = (y1 + y2) / 2; r = Math.max(x2 - x1, y2 - y1) * .95;
+      const g = vctx.createRadialGradient(sx, sy, r * .8, sx, sy, r * 2.6); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, S.mode === 'win' ? 'rgba(0,0,0,.55)' : 'rgba(0,0,0,.82)');
+      vctx.fillStyle = g; vctx.fillRect(0, 0, W, H);
+      const col = S.mode === 'win' ? '255,201,60' : '255,59,92', pulse = S.mode === 'win' ? 1 : .6 + .4 * Math.sin(now / 90);
+      vctx.shadowColor = `rgba(${col},1)`; vctx.shadowBlur = 30 * dpr;
+      brackets(x1 - r * .25, y1 - r * .25, x2 - x1 + r * .5, y2 - y1 + r * .5, u * 3, 6 * dpr, `rgba(${col},${pulse})`); vctx.shadowBlur = 0;
+      if (S.mode !== 'win') { // 조준선
+        vctx.strokeStyle = 'rgba(255,59,92,.5)'; vctx.lineWidth = 1.5 * dpr; vctx.beginPath();
+        vctx.moveTo(sx, 0); vctx.lineTo(sx, y1 - r * .4); vctx.moveTo(sx, y2 + r * .4); vctx.lineTo(sx, H);
+        vctx.moveTo(0, sy); vctx.lineTo(x1 - r * .4, sy); vctx.moveTo(x2 + r * .4, sy); vctx.lineTo(W, sy); vctx.stroke();
+      }
+    }
+    // 필름 레터박스
+    const lb = H * .07; vctx.fillStyle = '#000'; vctx.fillRect(0, 0, W, lb); vctx.fillRect(0, H - lb, W, lb);
+    if (S.mode !== 'win') { vctx.fillStyle = `rgba(255,59,92,${.5 + .5 * Math.sin(now / 150)})`; vctx.beginPath(); vctx.arc(lb * .6, lb / 2, lb * .14, 0, Math.PI * 2); vctx.fill();
+      vctx.fillStyle = '#fff'; vctx.font = `700 ${lb * .32}px 'Noto Sans KR'`; vctx.textAlign = 'left'; vctx.textBaseline = 'middle'; vctx.fillText('REC', lb * .85, lb / 2); }
+  }
+}
+
+/* =================== 추첨 =================== */
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const cap = $('#cap');
+function caption(t, cls = '') { cap.className = ''; void cap.offsetWidth; cap.textContent = t; if (t) cap.className = 'on ' + cls; }
+function focus(pid, mult, speed) { S.focusPid = pid; S.zoomMult = mult; S.camSpeed = speed; }
+function flash() { const f = $('#flash'); f.classList.remove('go'); void f.offsetWidth; f.classList.add('go'); }
+
+async function draw() {
+  if (S.mode === 'intro' || S.mode === 'roulette') return;
+  ac();
+  let pool = visible().filter(p => !p.picked);
+  if (!pool.length && visible().length) { S.people.forEach(p => p.picked = false); toast('모두 한 번씩 뽑혔어요 — 처음부터 다시!'); pool = visible(); }
+  if (!pool.length) { sfx.err(); toast('화면에 얼굴이 보이지 않아요. 카메라를 바라봐 주세요!'); return; }
+  S.mode = 'intro'; $('#bar').classList.add('hide'); caption(''); focus(null, 2.6, .06);
+
+  // 1) 긴장 고조
+  sfx.riser(1.6); caption('누가 발표할까요…?'); await sleep(1700);
+  caption('');
+
+  // 2) 얼굴을 하나씩 비추는 룰렛 (점점 느려짐)
+  S.mode = 'roulette';
+  let winner = pool[randInt(pool.length)];
+  const steps = pool.length === 1 ? 4 : clamp(10 + pool.length * 2, 12, 22);
+  const order = []; let prev = null;
+  for (let i = 0; i < steps; i++) { let c; do { c = pool[randInt(pool.length)]; } while (pool.length > 1 && c === prev); order.push(c); prev = c; }
+  for (let i = 0; i < steps; i++) {
+    const p = i / steps, live = visible();
+    const who = live.includes(order[i]) ? order[i] : (pool.find(x => live.includes(x)) || order[i]);
+    focus(who.id, 3.2 - p * .6, .28); sfx.tick(p); if (p > .55) sfx.heart(.25 + p * .4);
+    await sleep(160 + 900 * p * p);
+  }
+
+  // 3) 최종 긴장: 다른 사람에게 멈춘 척 → 진짜 발표자
+  const live = visible(); const finalPool = pool.filter(p => live.includes(p));
+  if (!finalPool.length) { S.mode = 'idle'; focus(null, 2.6, .06); caption(''); $('#bar').classList.remove('hide'); sfx.err(); toast('추첨 중 얼굴이 모두 사라졌어요. 다시 시도해 주세요.'); return; }
+  if (!finalPool.includes(winner)) winner = finalPool[randInt(finalPool.length)];
+  const decoy = finalPool.filter(p => p !== winner);
+  if (decoy.length && Math.random() < .6) {
+    const d = decoy[randInt(decoy.length)];
+    focus(d.id, 2.4, .12); caption('설마…?'); sfx.heart(.6); await sleep(700); sfx.heart(.6); await sleep(700);
+    caption('아니면…'); sfx.whoosh(); await sleep(300);
+  }
+  focus(winner.id, 2.6, .14); caption('두근… 두근…'); sfx.drumroll(2.2);
+  for (let i = 0; i < 3; i++) { sfx.heart(.7); await sleep(650); }
+
+  // 4) 당첨! 천천히 확대
+  S.mode = 'win'; winner.picked = true; focus(winner.id, 1.7, .035);
+  flash(); sfx.hit(); sfx.fanfare(); caption('🎤 발표자 당첨!', 'win'); confetti();
+  $('#drawBtn').textContent = '🎲 다음 발표자'; await sleep(1800);
+  $('#bar').classList.remove('hide');
+}
+function backToIdle() { if (S.mode !== 'win') return; S.mode = 'idle'; focus(null, 2.6, .06); caption(''); parts = []; }
+
+/* =================== 꽃가루 =================== */
+const cf = $('#confetti'), cc = cf.getContext('2d'); let parts = [];
+const COLORS = ['#ff3b8b', '#ffc93c', '#22e4ff', '#3dffa0', '#a066ff', '#fff'];
+function confetti() {
+  const W = innerWidth, H = innerHeight;
+  for (let i = 0; i < 260; i++) { const L = i % 2 === 0;
+    parts.push({ x: L ? -10 : W + 10, y: H * (.5 + Math.random() * .45), vx: (L ? 1 : -1) * (6 + Math.random() * 13), vy: -(10 + Math.random() * 17), s: 7 + Math.random() * 9, r: Math.random() * 6, vr: (Math.random() - .5) * .4, c: COLORS[i % 6] }); }
+}
+function drawConfetti() {
+  const dpr = Math.min(2, devicePixelRatio || 1);
+  if (cf.width !== innerWidth * dpr) { cf.width = innerWidth * dpr; cf.height = innerHeight * dpr; }
+  cc.setTransform(dpr, 0, 0, dpr, 0, 0); cc.clearRect(0, 0, innerWidth, innerHeight);
+  for (const p of parts) { p.vy += .35; p.vx *= .985; p.x += p.vx; p.y += p.vy; p.r += p.vr;
+    cc.save(); cc.translate(p.x, p.y); cc.rotate(p.r); cc.fillStyle = p.c; cc.fillRect(-p.s / 2, -p.s / 4, p.s, p.s / 2 * Math.abs(Math.cos(p.r * 2)) + 1); cc.restore(); }
+  parts = parts.filter(p => p.y < innerHeight + 40);
+}
+
+/* =================== 시작 / 조작 =================== */
+let toastT;
+function toast(m) { const t = $('#toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 2600); }
+async function start() {
+  ac(); const btn = $('#startBtn'); btn.disabled = true; btn.textContent = '⏳ 준비 중…';
+  try {
+    S.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+    video.srcObject = S.stream; await video.play();
+  } catch (e) {
+    btn.disabled = false; btn.textContent = '📷 카메라 시작';
+    toast(e.name === 'NotAllowedError' ? '카메라 권한을 허용해 주세요 (주소창 왼쪽 아이콘)' : '카메라를 시작할 수 없어요: ' + e.message); return;
+  }
+  try { if (!S.detector) await loadModel(); }
+  catch (e) { console.error(e); btn.disabled = false; btn.textContent = '📷 카메라 시작'; toast('얼굴 인식 모델을 불러오지 못했어요. 인터넷 연결을 확인해 주세요.'); return; }
+  $('#start').style.display = 'none'; $('#bar').classList.remove('hide');
+}
+$('#startBtn').onclick = start;
+$('#drawBtn').onclick = () => { if (S.mode === 'win') backToIdle(); draw(); };
+$('#fs').onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.();
+view.onclick = backToIdle;
+addEventListener('keydown', e => {
+  if ($('#start').style.display !== 'none') { if (e.code === 'Space' || e.key === 'Enter') { e.preventDefault(); start(); } return; }
+  if (e.code === 'Space' || e.key === 'Enter') { e.preventDefault(); if (S.mode === 'win') backToIdle(); draw(); }
+  else if (e.key === 'f' || e.key === 'F') $('#fs').click();
+  else if (e.key === 'Escape') backToIdle();
+});
+
+let lastCount = 0;
+function loop(now) {
+  detect(now); render(now); drawConfetti();
+  if (now - lastCount > 300) { lastCount = now; $('#count').textContent = `👀 ${visible(now).length}명`; }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
