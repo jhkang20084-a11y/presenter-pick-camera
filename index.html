@@ -127,13 +127,15 @@ function tone(f, d, type = 'sine', v = .3, when = 0, f2 = null) {
   g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(v, t + .01); g.gain.exponentialRampToValueAtTime(.0001, t + d);
   o.connect(g).connect(master); o.start(t); o.stop(t + d + .05);
 }
+let NOISE = null; // 잡음은 한 번만 만들어 재사용 (당첨 순간 소리 수십 개를 만들 때 끊김 방지)
 function noise(d, v = .3, when = 0, type = 'bandpass', freq = 1200, q = 1, f2 = null) {
-  const c = ac(), t = c.currentTime + when, len = Math.max(1, c.sampleRate * d | 0), buf = c.createBuffer(1, len, c.sampleRate), ch = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) ch[i] = Math.random() * 2 - 1;
-  const s = c.createBufferSource(); s.buffer = buf; const fl = c.createBiquadFilter(); fl.type = type; fl.frequency.setValueAtTime(freq, t); fl.Q.value = q;
+  const c = ac(), t = c.currentTime + when;
+  if (!NOISE) { const len = c.sampleRate * 3; NOISE = c.createBuffer(1, len, c.sampleRate); const ch = NOISE.getChannelData(0); for (let i = 0; i < len; i++) ch[i] = Math.random() * 2 - 1; }
+  const s = c.createBufferSource(); s.buffer = NOISE; s.loop = true; s.loopStart = 0; s.loopEnd = NOISE.duration;
+  const fl = c.createBiquadFilter(); fl.type = type; fl.frequency.setValueAtTime(freq, t); fl.Q.value = q;
   if (f2) fl.frequency.exponentialRampToValueAtTime(f2, t + d);
   const g = c.createGain(); g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(.0001, t + d);
-  s.connect(fl).connect(g).connect(master); s.start(t); s.stop(t + d + .05);
+  s.connect(fl).connect(g).connect(master); s.start(t, Math.random() * 2.5); s.stop(t + d + .05);
 }
 const sfx = {
   whoosh() { noise(.45, .4, 0, 'bandpass', 400, 1.2, 3500); },
@@ -218,21 +220,34 @@ function detect(now) {
   if (S.photo || !S.detector || video.readyState < 2 || !video.videoWidth || now - lastDet < 30) return;
   lastDet = now; frameNo++; if (frameNo % 15 === 1) measureLight();
   const vw = video.videoWidth, vh = video.videoHeight; buildTiles(vw, vh);
-  const boost = gain > 1.05 && frameNo % 2 === 0; let dets;
-  try {
-    dets = runOn(0, 0, 1, 1, false);
-    if (frameNo % 2) { const b = bigTiles[bi++ % bigTiles.length]; dets = dets.concat(runOn(b[0], b[1], b[2], b[3], boost)); }
-    const t = smallTiles[si++ % smallTiles.length]; dets = dets.concat(runOn(t[0], t[1], t[2], t[3], boost));
-    // 추적 중인 얼굴 주변 확대 재확인 (추첨 중 비추는 얼굴은 항상 포함)
-    const focus = S.tracks.slice().sort((a, b) => a.lastHit - b.lastHit).slice(0, 2);
-    const fp = S.focusPid && trackOfP(S.focusPid); if (fp && !focus.includes(fp)) focus[0] = fp;
-    for (const tr of focus) {
-      const side = clamp(Math.max(tr.box.w * vw, tr.box.h * vh) * 3.2, 120, Math.min(vw, vh));
-      if (side >= Math.min(vw, vh) * .95) continue;
-      const [cx, cy] = ctr(tr.box);
-      dets = dets.concat(runOn(clamp(cx * vw - side / 2, 0, vw - side) / vw, clamp(cy * vh - side / 2, 0, vh - side) / vh, side / vw, side / vh, boost));
-    }
-  } catch (e) { console.warn(e); return; }
+  const boost = gain > 1.05 && frameNo % 2 === 0, dets = [];
+  let fullDone = false;
+  const full = () => { if (fullDone) return []; fullDone = true; return runOn(0, 0, 1, 1, false); };
+  const around = tr => () => {
+    const side = clamp(Math.max(tr.box.w * vw, tr.box.h * vh) * 3.2, 120, Math.min(vw, vh));
+    if (side >= Math.min(vw, vh) * .95) return full(); // 큰 얼굴은 전체 화면 검사로 확인
+    const [cx, cy] = ctr(tr.box);
+    return runOn(clamp(cx * vw - side / 2, 0, vw - side) / vw, clamp(cy * vh - side / 2, 0, vh - side) / vh, side / vw, side / vh, boost);
+  };
+  // 검사 순서(우선순위): 추첨 중 비추는 얼굴 → 전체 화면 → 추적 중인 얼굴 → 새 얼굴 찾기 구역
+  const passes = [];
+  const fp = S.focusPid && trackOfP(S.focusPid); if (fp) passes.push(around(fp));
+  if (S.mode !== 'idle') {
+    const others = S.tracks.filter(t => t !== fp && t.pid);
+    if (others.length) passes.push(around(others[frameNo % others.length])); // 나머지 얼굴도 돌아가며 유지
+  }
+  passes.push(full);
+  if (S.mode === 'idle') {
+    for (const tr of S.tracks.filter(t => t !== fp).sort((a, b) => a.lastHit - b.lastHit).slice(0, 2)) passes.push(around(tr));
+    if (frameNo % 2) passes.push(() => { const b = bigTiles[bi++ % bigTiles.length]; return runOn(b[0], b[1], b[2], b[3], boost); });
+    passes.push(() => { const t = smallTiles[si++ % smallTiles.length]; return runOn(t[0], t[1], t[2], t[3], boost); });
+  }
+  // 한 프레임에 쓰는 검사 시간을 제한 → 느린 PC에서도 화면이 끊기지 않게 (추첨 중엔 더 짧게)
+  const budget = S.mode === 'idle' ? 22 : 14, t0 = performance.now();
+  passes.forEach((run, i) => {
+    if (i >= 2 && performance.now() - t0 > budget) return; // 최소 2가지 검사는 항상 수행
+    try { dets.push(...run()); } catch (e) { console.warn(e); }
+  });
   updateTracks(nms(dets), now);
 }
 
@@ -316,7 +331,8 @@ const getP = id => S.people.find(p => p.id === id);
 const trackOfP = id => { const p = getP(id); return p && p.trackId ? S.tracks.find(t => t.id === p.trackId) : null; };
 function visible(now = performance.now()) {
   if (S.photo) return S.scanning ? [] : S.people.filter(p => !p.excluded);
-  return S.people.filter(p => { const t = p.trackId && S.tracks.find(x => x.id === p.trackId); return t && now - t.lastHit < VIS_MS && t.hits.length >= 2; });
+  const win = S.mode === 'idle' ? VIS_MS : GRACE_MS; // 추첨 중엔 검사 간격이 길어지므로 유예 시간까지 인정
+  return S.people.filter(p => { const t = p.trackId && S.tracks.find(x => x.id === p.trackId); return t && now - t.lastHit < win && (t.hits.length >= 2 || S.mode !== 'idle'); });
 }
 const boxOf = p => { const t = p && trackOfP(p.id); return t ? t.box : p?.lastBox; };
 
@@ -352,29 +368,40 @@ function boxScreen(b) {
 
 /* =================== 왕관 =================== */
 const easeBounce = t => { const n = 7.5625, d = 2.75; if (t < 1 / d) return n * t * t; if (t < 2 / d) return n * (t -= 1.5 / d) * t + .75; if (t < 2.5 / d) return n * (t -= 2.25 / d) * t + .9375; return n * (t -= 2.625 / d) * t + .984375; };
+// 왕관 그림은 크기별로 한 번만 그려 두고(빛번짐 포함) 매 프레임엔 이미지로 붙임 → 당첨 순간 부하 감소
+const crownCache = new Map();
+function crownSprite(w, small) {
+  const key = Math.max(8, Math.round(w / 6) * 6) + (small ? 's' : '');
+  let sp = crownCache.get(key); if (sp) return sp;
+  if (crownCache.size > 24) crownCache.clear();
+  const cw = Math.max(8, Math.round(w / 6) * 6), ch = cw * .62, pad = small ? 10 : 36;
+  const cv = document.createElement('canvas'); cv.width = Math.ceil(cw * 1.2 + pad * 2); cv.height = Math.ceil(ch * 1.25 + pad * 2);
+  const c = cv.getContext('2d'); c.translate(cv.width / 2, cv.height - pad);
+  c.shadowColor = 'rgba(255,200,60,.8)'; c.shadowBlur = small ? 8 : 30;
+  const g = c.createLinearGradient(0, -ch, 0, 0); g.addColorStop(0, '#fff6c2'); g.addColorStop(.45, '#ffcc3c'); g.addColorStop(1, '#c47a00');
+  c.fillStyle = g; c.strokeStyle = '#8a5200'; c.lineWidth = Math.max(1.5, cw * .025); c.lineJoin = 'round';
+  c.beginPath();
+  c.moveTo(-cw / 2, 0); c.lineTo(-cw / 2, -ch * .25); c.lineTo(-cw * .52, -ch * .95); c.lineTo(-cw * .26, -ch * .5);
+  c.lineTo(0, -ch * 1.08); c.lineTo(cw * .26, -ch * .5); c.lineTo(cw * .52, -ch * .95); c.lineTo(cw / 2, -ch * .25); c.lineTo(cw / 2, 0); c.closePath();
+  c.fill(); c.shadowBlur = 0; c.stroke();
+  c.fillStyle = 'rgba(140,80,0,.35)'; c.fillRect(-cw / 2, -ch * .25, cw, ch * .07);           // 띠
+  for (const [x, y] of [[-cw * .52, -ch * .95], [0, -ch * 1.08], [cw * .52, -ch * .95]]) {    // 꼭대기 구슬
+    c.fillStyle = '#fff2a8'; c.beginPath(); c.arc(x, y, cw * .055, 0, Math.PI * 2); c.fill(); c.stroke();
+  }
+  [['#ff2d55', -cw * .28], ['#2d8cff', 0], ['#20d47a', cw * .28]].forEach(([col, x]) => {      // 보석
+    const jr = cw * .065; c.fillStyle = col; c.beginPath(); c.ellipse(x, -ch * .12, jr * 1.1, jr, 0, 0, Math.PI * 2); c.fill();
+    c.fillStyle = 'rgba(255,255,255,.7)'; c.beginPath(); c.arc(x - jr * .35, -ch * .12 - jr * .35, jr * .3, 0, Math.PI * 2); c.fill();
+  });
+  sp = { cv, ax: cv.width / 2, ay: cv.height - pad, cw }; crownCache.set(key, sp); return sp;
+}
 function drawCrown(r, now, t, small = false) {
   // r: 얼굴 상자(화면 좌표). 왕관 바닥은 이마 위쪽에 둠
   const w = r.w * (small ? 1.0 : 1.35), h = w * .62, cx = r.x + r.w / 2, baseY = r.y - r.h * .22;
+  if (!(w > 2) || !isFinite(cx + baseY)) return;
   const drop = (1 - easeBounce(clamp(t, 0, 1))) * (baseY + h + 40);
+  const sp = crownSprite(w, small), k = w / sp.cw;
   vctx.save(); vctx.translate(cx, baseY - drop); vctx.rotate(Math.sin(now / 500) * .05);
-  vctx.shadowColor = 'rgba(255,200,60,.8)'; vctx.shadowBlur = small ? 8 : 30;
-  const g = vctx.createLinearGradient(0, -h, 0, 0); g.addColorStop(0, '#fff6c2'); g.addColorStop(.45, '#ffcc3c'); g.addColorStop(1, '#c47a00');
-  vctx.fillStyle = g; vctx.strokeStyle = '#8a5200'; vctx.lineWidth = Math.max(1.5, w * .025); vctx.lineJoin = 'round';
-  vctx.beginPath();
-  vctx.moveTo(-w / 2, 0); vctx.lineTo(-w / 2, -h * .25); vctx.lineTo(-w * .52, -h * .95); vctx.lineTo(-w * .26, -h * .5);
-  vctx.lineTo(0, -h * 1.08); vctx.lineTo(w * .26, -h * .5); vctx.lineTo(w * .52, -h * .95); vctx.lineTo(w / 2, -h * .25); vctx.lineTo(w / 2, 0); vctx.closePath();
-  vctx.fill(); vctx.shadowBlur = 0; vctx.stroke();
-  // 띠
-  vctx.fillStyle = 'rgba(140,80,0,.35)'; vctx.fillRect(-w / 2, -h * .25, w, h * .07);
-  // 꼭대기 구슬
-  for (const [x, y] of [[-w * .52, -h * .95], [0, -h * 1.08], [w * .52, -h * .95]]) {
-    vctx.fillStyle = '#fff2a8'; vctx.beginPath(); vctx.arc(x, y, w * .055, 0, Math.PI * 2); vctx.fill(); vctx.stroke();
-  }
-  // 보석
-  [['#ff2d55', -w * .28], ['#2d8cff', 0], ['#20d47a', w * .28]].forEach(([c, x]) => {
-    const jr = w * .065; vctx.fillStyle = c; vctx.beginPath(); vctx.ellipse(x, -h * .12, jr * 1.1, jr, 0, 0, Math.PI * 2); vctx.fill();
-    vctx.fillStyle = 'rgba(255,255,255,.7)'; vctx.beginPath(); vctx.arc(x - jr * .35, -h * .12 - jr * .35, jr * .3, 0, Math.PI * 2); vctx.fill();
-  });
+  vctx.drawImage(sp.cv, -sp.ax * k, -sp.ay * k, sp.cv.width * k, sp.cv.height * k);
   // 반짝임
   if (!small && t >= 1) for (let i = 0; i < 4; i++) {
     const ph = (now / 700 + i / 4) % 1, a = Math.sin(ph * Math.PI), sx = Math.cos(i * 1.9) * w * .7, sy = -h * .6 + Math.sin(i * 2.7) * h * .6, s = w * .07 * a;
@@ -600,10 +627,13 @@ addEventListener('keydown', e => {
 syncModeButtons();
 
 let lastCount = 0;
+// 어느 한 단계에서 오류가 나도 화면 갱신이 멈추지 않도록 다음 프레임을 먼저 예약하고 단계별로 보호
 function loop(now) {
-  detect(now); render(now); drawConfetti();
-  if (now - lastCount > 300) { lastCount = now; $('#count').textContent = `👀 ${visible(now).length}명`; }
   requestAnimationFrame(loop);
+  try { detect(now); } catch (e) { console.warn('detect', e); }
+  try { render(now); } catch (e) { console.warn('render', e); }
+  try { drawConfetti(); } catch (e) { parts = []; }
+  if (now - lastCount > 300) { lastCount = now; $('#count').textContent = `👀 ${visible(now).length}명`; }
 }
 requestAnimationFrame(loop);
 </script>
