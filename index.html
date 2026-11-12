@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>발표자 추첨 카메라</title>
+<title>당첨자 추첨 카메라</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Noto+Sans+KR:wght@500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -68,7 +68,7 @@ html,body{margin:0;height:100%;background:#000;color:#fff;font-family:'Noto Sans
 
 <div id="bar" class="hide">
   <div id="count">👀 0명</div>
-  <button class="go" id="drawBtn">🎲 발표자 뽑기</button>
+  <button class="go" id="drawBtn">🎲 당첨자 뽑기</button>
   <button class="ib" id="crownBtn" title="당첨자 왕관 켜기/끄기">👑</button>
   <button class="ib" id="camBtn" title="카메라로 추첨">📷</button>
   <button class="ib" id="photoBtn" title="사진 올려서 추첨">🖼</button>
@@ -77,8 +77,8 @@ html,body{margin:0;height:100%;background:#000;color:#fff;font-family:'Noto Sans
 
 <div id="start">
   <div>
-    <h1>누가 발표할까?</h1>
-    <p>카메라나 사진 속 얼굴 중에서 발표자를 뽑습니다</p>
+    <h1>누가 당첨될까?</h1>
+    <p>카메라나 사진 속 얼굴 중에서 당첨자를 뽑습니다</p>
     <div class="btns">
       <button class="go" id="startBtn">📷 카메라로 시작</button>
       <button class="go alt" id="startPhoto">🖼 사진 올리기</button>
@@ -466,7 +466,7 @@ async function draw() {
   S.mode = 'intro'; $('#bar').classList.add('hide'); $('#hint').classList.remove('on'); caption(''); focus(null, 2.6, .06);
 
   // 1) 긴장 고조
-  sfx.riser(1.6); caption('누가 발표할까요…?'); await sleep(1700);
+  sfx.riser(1.6); caption('누가 당첨될까요…?'); await sleep(1700);
   caption('');
 
   // 2) 얼굴을 하나씩 비추는 룰렛 (점점 느려짐)
@@ -482,7 +482,7 @@ async function draw() {
     await sleep(160 + 900 * p * p);
   }
 
-  // 3) 최종 긴장: 다른 사람에게 멈춘 척 → 진짜 발표자
+  // 3) 최종 긴장: 다른 사람에게 멈춘 척 → 진짜 당첨자
   const live = visible(); const finalPool = pool.filter(p => live.includes(p));
   if (!finalPool.length) { S.mode = 'idle'; focus(null, 2.6, .06); caption(''); $('#bar').classList.remove('hide'); sfx.err(); toast('추첨 중 얼굴이 모두 사라졌어요. 다시 시도해 주세요.'); return; }
   if (!finalPool.includes(winner)) winner = finalPool[randInt(finalPool.length)];
@@ -498,8 +498,8 @@ async function draw() {
   // 4) 당첨! 천천히 확대 (+ 왕관)
   S.mode = 'win'; S.winT0 = performance.now(); winner.picked = true; focus(winner.id, S.crown ? 3.1 : 1.7, .035);
   flash(); sfx.hit(); sfx.fanfare(); if (S.crown) sfx.crown(1.05);
-  caption(S.crown ? '👑 오늘의 발표자!' : '🎤 발표자 당첨!', 'win'); confetti();
-  $('#drawBtn').textContent = '🎲 다음 발표자'; await sleep(1800);
+  caption(S.crown ? '👑 오늘의 당첨자!' : '🎉 당첨!', 'win'); confetti();
+  $('#drawBtn').textContent = '🎲 다음 당첨자'; await sleep(1800);
   $('#bar').classList.remove('hide');
 }
 function backToIdle() { if (S.mode !== 'win') return; S.mode = 'idle'; focus(null, 2.6, .06); caption(''); parts = []; if (S.photo) showHint('얼굴을 누르면 제외 · 빈 곳을 누르면 얼굴 추가'); }
@@ -524,7 +524,7 @@ function drawConfetti() {
 /* =================== 시작 / 전환 =================== */
 let toastT;
 function toast(m, ms = 2600) { const t = $('#toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), ms); }
-function resetPeople() { S.people = []; S.tracks = []; S.focusPid = null; S.mode = 'idle'; S.cam = null; caption(''); parts = []; $('#drawBtn').textContent = '🎲 발표자 뽑기'; }
+function resetPeople() { S.people = []; S.tracks = []; S.focusPid = null; S.mode = 'idle'; S.cam = null; caption(''); parts = []; $('#drawBtn').textContent = '🎲 당첨자 뽑기'; }
 function stopCamera() { if (S.stream) S.stream.getTracks().forEach(t => t.stop()); S.stream = null; video.srcObject = null; }
 function syncModeButtons() { $('#camBtn').classList.toggle('on', !S.photo); $('#photoBtn').classList.toggle('on', S.photo); $('#crownBtn').classList.toggle('off', !S.crown); }
 
