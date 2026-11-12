@@ -14,22 +14,31 @@ html,body{margin:0;height:100%;background:#000;color:#fff;font-family:'Noto Sans
 #hidden{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
 
 /* 시작 화면 */
-#start{position:fixed;inset:0;display:grid;place-items:center;text-align:center;background:radial-gradient(circle at 50% 45%,#1a1440,#05060f 70%);z-index:20}
+#start{position:fixed;inset:0;display:grid;place-items:center;text-align:center;background:radial-gradient(circle at 50% 45%,#1a1440,#05060f 70%);z-index:20;padding:20px}
 #start h1{font-family:'Black Han Sans';font-weight:400;font-size:clamp(40px,7vw,110px);margin:0;letter-spacing:.02em;
   background:linear-gradient(180deg,#fff,#ffd36b);-webkit-background-clip:text;background-clip:text;color:transparent}
 #start p{color:#9aa4c8;margin:.6em 0 2em;font-size:clamp(14px,1.4vw,20px)}
+#start .btns{display:flex;gap:16px;justify-content:center;flex-wrap:wrap}
 #start small{display:block;color:#5f6890;margin-top:2em;font-size:13px}
 
 .go{border:none;cursor:pointer;font-family:'Black Han Sans';font-size:clamp(22px,2.4vw,40px);color:#fff;padding:.55em 1.6em;border-radius:999px;
   background:linear-gradient(135deg,#ff3b8b,#a020ff);box-shadow:0 10px 40px rgba(255,59,139,.5),inset 0 -4px 0 rgba(0,0,0,.2);transition:transform .15s}
+.go.alt{background:linear-gradient(135deg,#1fb6ff,#3b5bff);box-shadow:0 10px 40px rgba(31,182,255,.4),inset 0 -4px 0 rgba(0,0,0,.2)}
 .go:hover{transform:scale(1.05)}
 .go:active{transform:scale(.97)}
+.go:disabled{opacity:.6;cursor:wait;transform:none}
 
 /* 하단 조작부 */
-#bar{position:fixed;left:50%;bottom:4vh;transform:translateX(-50%);display:flex;align-items:center;gap:14px;z-index:10;transition:opacity .4s,transform .4s}
+#bar{position:fixed;left:50%;bottom:4vh;transform:translateX(-50%);display:flex;align-items:center;gap:12px;z-index:10;transition:opacity .4s,transform .4s;max-width:96vw;flex-wrap:wrap;justify-content:center}
 #bar.hide{opacity:0;pointer-events:none;transform:translate(-50%,30px)}
 #count{min-width:5.5em;text-align:center;padding:.5em 1em;border-radius:999px;background:rgba(0,0,0,.55);backdrop-filter:blur(8px);font-weight:700;font-size:clamp(14px,1.3vw,20px)}
-#fs{width:52px;height:52px;border-radius:50%;border:none;cursor:pointer;background:rgba(0,0,0,.55);color:#fff;font-size:22px;backdrop-filter:blur(8px)}
+.ib{width:52px;height:52px;border-radius:50%;border:2px solid transparent;cursor:pointer;background:rgba(0,0,0,.55);color:#fff;font-size:22px;backdrop-filter:blur(8px);transition:.2s;flex:none}
+.ib:hover{background:rgba(40,40,60,.8)}
+.ib.on{border-color:var(--gold);box-shadow:0 0 18px rgba(255,201,60,.5)}
+.ib.off{opacity:.45;filter:grayscale(1)}
+#hint{position:fixed;top:3vh;left:50%;transform:translateX(-50%);padding:.45em 1.1em;border-radius:999px;background:rgba(0,0,0,.6);backdrop-filter:blur(8px);
+  font-size:clamp(12px,1.1vw,17px);color:#cfd6f5;z-index:9;pointer-events:none;white-space:nowrap;transition:opacity .3s;opacity:0}
+#hint.on{opacity:1}
 
 /* 자막 */
 #cap{position:fixed;left:0;right:0;bottom:12vh;text-align:center;z-index:9;pointer-events:none;font-family:'Black Han Sans';
@@ -41,9 +50,11 @@ html,body{margin:0;height:100%;background:#000;color:#fff;font-family:'Noto Sans
 #flash.go{animation:flash .6s ease-out}
 @keyframes flash{from{opacity:.85}to{opacity:0}}
 #confetti{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:11}
-#toast{position:fixed;top:4vh;left:50%;transform:translateX(-50%);padding:.7em 1.3em;border-radius:999px;background:rgba(0,0,0,.75);backdrop-filter:blur(8px);
+#toast{position:fixed;top:9vh;left:50%;transform:translateX(-50%);padding:.7em 1.3em;border-radius:999px;background:rgba(0,0,0,.78);backdrop-filter:blur(8px);
   font-weight:700;font-size:clamp(14px,1.3vw,20px);z-index:30;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap}
 #toast.on{opacity:1}
+#drop{position:fixed;inset:0;z-index:40;display:none;place-items:center;background:rgba(10,20,60,.75);border:6px dashed var(--cyan);font-family:'Black Han Sans';font-size:clamp(28px,4vw,60px);pointer-events:none}
+#drop.on{display:grid}
 </style>
 </head>
 <body>
@@ -51,23 +62,32 @@ html,body{margin:0;height:100%;background:#000;color:#fff;font-family:'Noto Sans
 <canvas id="view"></canvas>
 <div id="flash"></div>
 <div id="cap"></div>
+<div id="hint"></div>
 <canvas id="confetti"></canvas>
+<input type="file" id="file" accept="image/*" hidden>
 
 <div id="bar" class="hide">
   <div id="count">👀 0명</div>
   <button class="go" id="drawBtn">🎲 발표자 뽑기</button>
-  <button id="fs" title="전체화면 (F)">⛶</button>
+  <button class="ib" id="crownBtn" title="당첨자 왕관 켜기/끄기">👑</button>
+  <button class="ib" id="camBtn" title="카메라로 추첨">📷</button>
+  <button class="ib" id="photoBtn" title="사진 올려서 추첨">🖼</button>
+  <button class="ib" id="fs" title="전체화면 (F)">⛶</button>
 </div>
 
 <div id="start">
   <div>
     <h1>누가 발표할까?</h1>
-    <p>카메라에 비친 얼굴 중에서 발표자를 뽑습니다</p>
-    <button class="go" id="startBtn">📷 카메라 시작</button>
-    <small>영상은 이 브라우저 안에서만 처리되며 저장·전송되지 않습니다</small>
+    <p>카메라나 사진 속 얼굴 중에서 발표자를 뽑습니다</p>
+    <div class="btns">
+      <button class="go" id="startBtn">📷 카메라로 시작</button>
+      <button class="go alt" id="startPhoto">🖼 사진 올리기</button>
+    </div>
+    <small>영상과 사진은 이 브라우저 안에서만 처리되며 저장·전송되지 않습니다 · 사진은 화면에 끌어다 놓아도 됩니다</small>
   </div>
 </div>
 <div id="toast"></div>
+<div id="drop">🖼 여기에 사진을 놓으세요</div>
 
 <script type="module">
 /* =================== 설정 =================== */
@@ -79,17 +99,24 @@ const VIS_MS = 900;        // 이 시간 안에 감지되면 "지금 화면에 �
 
 const $ = s => document.querySelector(s);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const range = (v, size, total) => size >= total ? (total - size) / 2 : clamp(v, 0, total - size);
 const randInt = n => { const a = new Uint32Array(1); crypto.getRandomValues(a); return a[0] % n; };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 const video = $('#hidden'), view = $('#view'), vctx = view.getContext('2d');
+let crownPref = true; try { crownPref = localStorage.getItem('pp_crown') !== '0'; } catch {}
 
 const S = {
   stream: null, detector: null,
+  photo: false, img: null, scanning: false,   // 사진 모드
   tracks: [], nextTid: 1, people: [], nextPid: 1,
   mode: 'idle',            // idle | intro | roulette | win
   focusPid: null, zoomMult: 2.6, camSpeed: .08,
-  cam: null,               // 현재 카메라 프레이밍(영상 픽셀 좌표)
-  winT0: 0,
+  cam: null, winT0: 0, crown: crownPref,
 };
+const src = () => S.photo ? S.img : video;
+const srcW = () => S.photo ? (S.img?.naturalWidth || 0) : video.videoWidth;
+const srcH = () => S.photo ? (S.img?.naturalHeight || 0) : video.videoHeight;
+const mirror = () => !S.photo;
 
 /* =================== 사운드 =================== */
 let AC, master;
@@ -120,11 +147,14 @@ const sfx = {
     [523.25, 659.25, 783.99, 1046.5].forEach(f => tone(f, 1.4, 'sawtooth', .06, .65)); tone(1046.5, 1.5, 'triangle', .14, .65);
     for (let i = 0; i < 80; i++) noise(.04 + Math.random() * .04, .08 + Math.random() * .1, .7 + Math.random() * 2.3, 'bandpass', 1200 + Math.random() * 1800, 1.5);
   },
+  crown(when = 0) { [1568, 2093, 2637, 3136].forEach((f, i) => tone(f, .5, 'sine', .12, when + i * .07)); tone(784, .4, 'triangle', .15, when); },
+  click() { tone(900, .06, 'square', .06); },
   err() { tone(160, .3, 'sawtooth', .15); tone(120, .3, 'sawtooth', .12, .12); },
 };
 
 /* =================== 얼굴 인식 =================== */
 async function loadModel() {
+  if (S.detector) return;
   const m = await import(MP_URL);
   const FD = m.FaceDetector || m.default?.FaceDetector, FR = m.FilesetResolver || m.default?.FilesetResolver;
   const fs = await FR.forVisionTasks(MP_URL + '/wasm');
@@ -138,29 +168,31 @@ const pctx = probe.getContext('2d', { willReadFrequently: true });
 const HAS_FILTER = 'filter' in wctx, DET = 384;
 let gain = 1, frameNo = 0, lastDet = 0, bigTiles = [], smallTiles = [], tileKey = '', bi = 0, si = 0;
 
+// 얼굴 모델은 작은 정사각형 입력을 쓰므로 화면을 정사각형 구역으로 나눠 검사해야 작은 얼굴도 잡힘
+function gridTiles(vw, vh, s) {
+  const nx = vw > s ? Math.ceil((vw - s) / (s * .65)) + 1 : 1, ny = vh > s ? Math.ceil((vh - s) / (s * .65)) + 1 : 1, out = [];
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++)
+    out.push([(nx > 1 ? (vw - s) * i / (nx - 1) : (vw - s) / 2) / vw, (ny > 1 ? (vh - s) * j / (ny - 1) : (vh - s) / 2) / vh, s / vw, s / vh]);
+  return out;
+}
 function buildTiles(vw, vh) {
   const key = vw + 'x' + vh; if (key === tileKey) return; tileKey = key;
-  const grid = s => {
-    const nx = vw > s ? Math.ceil((vw - s) / (s * .65)) + 1 : 1, ny = vh > s ? Math.ceil((vh - s) / (s * .65)) + 1 : 1, out = [];
-    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++)
-      out.push([(nx > 1 ? (vw - s) * i / (nx - 1) : (vw - s) / 2) / vw, (ny > 1 ? (vh - s) * j / (ny - 1) : (vh - s) / 2) / vh, s / vw, s / vh]);
-    return out;
-  };
-  const m = Math.min(vw, vh); bigTiles = grid(m); smallTiles = grid(m * .5);
+  const m = Math.min(vw, vh); bigTiles = gridTiles(vw, vh, m); smallTiles = gridTiles(vw, vh, m * .5);
   smallTiles.sort((a, b) => Math.abs(a[1] + a[3] / 2 - .5) - Math.abs(b[1] + b[3] / 2 - .5));
 }
 function measureLight() {
-  pctx.drawImage(video, 0, 0, 32, 18); const d = pctx.getImageData(0, 0, 32, 18).data; let s = 0;
+  pctx.drawImage(src(), 0, 0, 32, 18); const d = pctx.getImageData(0, 0, 32, 18).data; let s = 0;
   for (let i = 0; i < d.length; i += 4) s += d[i] * .299 + d[i + 1] * .587 + d[i + 2] * .114;
   const l = s / (d.length / 4); gain = l < 95 ? clamp(115 / Math.max(l, 15), 1, 2) : 1;
 }
 let lut = null, lutG = 0;
 function runOn(sx, sy, sw, sh, boost) {
-  const vw = video.videoWidth, vh = video.videoHeight;
+  const vw = srcW(), vh = srcH();
   if (work.width !== DET) { work.width = DET; work.height = DET; }
   const useB = boost && gain > 1.05;
   wctx.filter = useB && HAS_FILTER ? `brightness(${gain.toFixed(2)}) contrast(${(1 + (gain - 1) * .25).toFixed(2)})` : 'none';
-  wctx.drawImage(video, sx * vw, sy * vh, sw * vw, sh * vh, 0, 0, DET, DET); wctx.filter = 'none';
+  wctx.fillStyle = '#000'; wctx.fillRect(0, 0, DET, DET);
+  wctx.drawImage(src(), sx * vw, sy * vh, sw * vw, sh * vh, 0, 0, DET, DET); wctx.filter = 'none';
   if (useB && !HAS_FILTER) {
     if (lutG !== gain) { lut = new Uint8ClampedArray(256); for (let i = 0; i < 256; i++) lut[i] = 255 * Math.pow(i / 255, 1 / gain); lutG = gain; }
     const img = wctx.getImageData(0, 0, DET, DET), d = img.data; for (let i = 0; i < d.length; i += 4) { d[i] = lut[d[i]]; d[i + 1] = lut[d[i + 1]]; d[i + 2] = lut[d[i + 2]]; } wctx.putImageData(img, 0, 0);
@@ -170,17 +202,20 @@ function runOn(sx, sy, sw, sh, boost) {
     const b = d.boundingBox, cx = (sx + ((b.originX + b.width / 2) / DET) * sw) * vw, cy = (sy + ((b.originY + b.height / 2) / DET) * sh) * vh;
     const ph = (b.height / DET) * sh * vh; let pw = (b.width / DET) * sw * vw; if (squash) pw = ph;
     return { x: (cx - pw / 2) / vw, y: (cy - ph / 2) / vh, w: pw / vw, h: ph / vh, s: d.categories?.[0]?.score ?? .5, pr: ph / pw };
-  }).filter(d => d.w > .006 && d.w < .9 && d.pr < 2.2 && d.pr > .45);
+  }).filter(d => d.w > .004 && d.w < .9 && d.pr < 2.2 && d.pr > .45);
 }
 const iou = (a, b) => { const x1 = Math.max(a.x, b.x), y1 = Math.max(a.y, b.y), x2 = Math.min(a.x + a.w, b.x + b.w), y2 = Math.min(a.y + a.h, b.y + b.h), i = Math.max(0, x2 - x1) * Math.max(0, y2 - y1); return i / (a.w * a.h + b.w * b.h - i + 1e-9); };
 const ctr = b => [b.x + b.w / 2, b.y + b.h / 2];
 function nms(list) {
   list.sort((a, b) => b.s - a.s); const out = [];
-  for (const d of list) { const [cx, cy] = ctr(d); if (!out.some(o => iou(o, d) > .3 || (cx > o.x && cx < o.x + o.w && cy > o.y && cy < o.y + o.h))) out.push(d); }
+  for (const d of list) {
+    const [cx, cy] = ctr(d);
+    if (!out.some(o => iou(o, d) > .3 || (cx > o.x && cx < o.x + o.w && cy > o.y && cy < o.y + o.h && Math.max(o.w, d.w) / Math.min(o.w, d.w) < 2.2))) out.push(d);
+  }
   return out;
 }
 function detect(now) {
-  if (!S.detector || video.readyState < 2 || !video.videoWidth || now - lastDet < 30) return;
+  if (S.photo || !S.detector || video.readyState < 2 || !video.videoWidth || now - lastDet < 30) return;
   lastDet = now; frameNo++; if (frameNo % 15 === 1) measureLight();
   const vw = video.videoWidth, vh = video.videoHeight; buildTiles(vw, vh);
   const boost = gain > 1.05 && frameNo % 2 === 0; let dets;
@@ -199,6 +234,36 @@ function detect(now) {
     }
   } catch (e) { console.warn(e); return; }
   updateTracks(nms(dets), now);
+}
+
+/* =================== 사진 모드: 사진 전체를 여러 크기로 꼼꼼히 검사 =================== */
+// 진짜 얼굴은 겹치는 여러 구역·크기에서 반복해서 잡히고, 손·옷 같은 오검출은 한 번만 잡히는 경향 → 투표로 거름
+function voteFilter(list) {
+  list.sort((a, b) => b.s - a.s); const cl = [];
+  for (const d of list) {
+    const [cx, cy] = ctr(d);
+    const c = cl.find(o => iou(o.box, d) > .3 || (cx > o.box.x && cx < o.box.x + o.box.w && cy > o.box.y && cy < o.box.y + o.box.h && Math.max(o.box.w, d.w) / Math.min(o.box.w, d.w) < 2.2));
+    if (c) { c.votes++; } else cl.push({ box: d, votes: 1, s: d.s });
+  }
+  return cl.filter(c => c.s >= .75 || (c.votes >= 3 && c.s >= .6)).map(c => c.box);
+}
+async function scanPhoto() {
+  S.scanning = true; S.people = []; S.focusPid = null;
+  const iw = srcW(), ih = srcH(), m = Math.min(iw, ih);
+  measureLight();
+  const regions = [[0, 0, 1, 1]];
+  for (let s = m, k = 0; s >= 150 && k < 5; s /= 2, k++) regions.push(...gridTiles(iw, ih, s));
+  const passes = gain > 1.05 ? [false, true] : [false];
+  const total = regions.length * passes.length; let done = 0, dets = [];
+  for (const r of regions) for (const b of passes) {
+    try { dets.push(...runOn(r[0], r[1], r[2], r[3], b)); } catch (e) { console.warn(e); }
+    if (++done % 3 === 0) { S.scanP = done / total; showHint(`🔍 얼굴 찾는 중… ${Math.round(S.scanP * 100)}%`); await sleep(0); }
+  }
+  dets = voteFilter(dets);
+  S.people = dets.map(d => ({ id: S.nextPid++, picked: false, excluded: false, manual: false, trackId: null, lastBox: { x: d.x, y: d.y, w: d.w, h: d.h } }));
+  S.scanning = false;
+  toast(S.people.length ? `얼굴 ${S.people.length}명을 찾았어요` : '얼굴을 찾지 못했어요. 얼굴을 직접 눌러 추가해 주세요.');
+  showHint('얼굴을 누르면 제외 · 빈 곳을 누르면 얼굴 추가');
 }
 
 /* =================== 추적 (같은 사람 중복 방지 · 잠깐 가려져도 유지) =================== */
@@ -244,77 +309,139 @@ function register(t, now) {
     const [px, py] = ctr(p.lastBox), d = Math.hypot(cx - px, cy - py), lim = now - p.lostAt < 6000 ? .32 : .16;
     if (d < lim && d < bd) { bd = d; best = p; }
   }
-  const p = best || (S.people.push({ id: S.nextPid++, picked: false, trackId: null, lastBox: null, lostAt: 0 }), S.people[S.people.length - 1]);
+  const p = best || (S.people.push({ id: S.nextPid++, picked: false, excluded: false, trackId: null, lastBox: null, lostAt: 0 }), S.people[S.people.length - 1]);
   p.trackId = t.id; p.lastBox = { ...t.box }; t.pid = p.id;
 }
 const getP = id => S.people.find(p => p.id === id);
 const trackOfP = id => { const p = getP(id); return p && p.trackId ? S.tracks.find(t => t.id === p.trackId) : null; };
-const visible = (now = performance.now()) => S.people.filter(p => { const t = p.trackId && S.tracks.find(x => x.id === p.trackId); return t && now - t.lastHit < VIS_MS && t.hits.length >= 2; });
+function visible(now = performance.now()) {
+  if (S.photo) return S.scanning ? [] : S.people.filter(p => !p.excluded);
+  return S.people.filter(p => { const t = p.trackId && S.tracks.find(x => x.id === p.trackId); return t && now - t.lastHit < VIS_MS && t.hits.length >= 2; });
+}
+const boxOf = p => { const t = p && trackOfP(p.id); return t ? t.box : p?.lastBox; };
 
 /* =================== 카메라 프레이밍 =================== */
 function fullCrop() {
-  const vw = video.videoWidth, vh = video.videoHeight, A = view.width / view.height;
+  const vw = srcW(), vh = srcH(), A = view.width / view.height;
+  if (S.photo) { // 사진은 전체가 다 보이도록(여백 포함)
+    let w, h; if (vw / vh > A) { w = vw * 1.04; h = w / A; } else { h = vh * 1.04; w = h * A; }
+    return { x: (vw - w) / 2, y: (vh - h) / 2, w, h };
+  }
   let w = vw, h = vw / A; if (h > vh) { h = vh; w = vh * A; }
   return { x: (vw - w) / 2, y: (vh - h) / 2, w, h };
 }
-function faceCrop(box, mult) {
-  const vw = video.videoWidth, vh = video.videoHeight, A = view.width / view.height, full = fullCrop();
-  let h = clamp(Math.max(box.h * vh, box.w * vw / 1.0) * mult, Math.min(150, full.h), full.h), w = h * A;
+function faceCrop(box, mult, lift = 0) {
+  const vw = srcW(), vh = srcH(), A = view.width / view.height, full = fullCrop();
+  const fs = Math.max(box.h * vh, box.w * vw);
+  let h = clamp(fs * mult, Math.min(150, full.h), full.h), w = h * A;
   if (w > full.w) { w = full.w; h = w / A; }
-  const cx = (box.x + box.w / 2) * vw, cy = (box.y + box.h / 2) * vh + box.h * vh * .1;
-  return { x: clamp(cx - w / 2, 0, vw - w), y: clamp(cy - h / 2, 0, vh - h), w, h };
+  // lift: 얼굴을 화면 아래쪽에 두어 머리 위 공간(왕관 자리)을 확보
+  const cx = (box.x + box.w / 2) * vw, cy = (box.y + box.h / 2) * vh + box.h * vh * .1 - fs * lift;
+  return { x: range(cx - w / 2, w, vw), y: range(cy - h / 2, h, vh), w, h };
 }
 function camTarget() {
-  if (S.focusPid) { const p = getP(S.focusPid), t = trackOfP(S.focusPid), b = t ? t.box : p?.lastBox; if (b) return faceCrop(b, S.zoomMult); }
+  if (S.focusPid) { const b = boxOf(getP(S.focusPid)); if (b) return faceCrop(b, S.zoomMult, S.mode === 'win' && S.crown ? .55 : 0); }
   return fullCrop();
 }
-// 영상 좌표 → 화면 좌표 (거울 모드)
-function toScreen(px, py) { const c = S.cam, W = view.width, H = view.height; return [W - (px - c.x) / c.w * W, (py - c.y) / c.h * H]; }
+function toScreen(px, py) { const c = S.cam, W = view.width, H = view.height; let x = (px - c.x) / c.w * W; if (mirror()) x = W - x; return [x, (py - c.y) / c.h * H]; }
+function fromScreen(x, y) { const c = S.cam, W = view.width, H = view.height; if (mirror()) x = W - x; return [c.x + x / W * c.w, c.y + y / H * c.h]; }
+function boxScreen(b) {
+  const vw = srcW(), vh = srcH(), [ax, ay] = toScreen(b.x * vw, b.y * vh), [bx, by] = toScreen((b.x + b.w) * vw, (b.y + b.h) * vh);
+  return { x: Math.min(ax, bx), y: Math.min(ay, by), w: Math.abs(bx - ax), h: Math.abs(by - ay) };
+}
+
+/* =================== 왕관 =================== */
+const easeBounce = t => { const n = 7.5625, d = 2.75; if (t < 1 / d) return n * t * t; if (t < 2 / d) return n * (t -= 1.5 / d) * t + .75; if (t < 2.5 / d) return n * (t -= 2.25 / d) * t + .9375; return n * (t -= 2.625 / d) * t + .984375; };
+function drawCrown(r, now, t, small = false) {
+  // r: 얼굴 상자(화면 좌표). 왕관 바닥은 이마 위쪽에 둠
+  const w = r.w * (small ? 1.0 : 1.35), h = w * .62, cx = r.x + r.w / 2, baseY = r.y - r.h * .22;
+  const drop = (1 - easeBounce(clamp(t, 0, 1))) * (baseY + h + 40);
+  vctx.save(); vctx.translate(cx, baseY - drop); vctx.rotate(Math.sin(now / 500) * .05);
+  vctx.shadowColor = 'rgba(255,200,60,.8)'; vctx.shadowBlur = small ? 8 : 30;
+  const g = vctx.createLinearGradient(0, -h, 0, 0); g.addColorStop(0, '#fff6c2'); g.addColorStop(.45, '#ffcc3c'); g.addColorStop(1, '#c47a00');
+  vctx.fillStyle = g; vctx.strokeStyle = '#8a5200'; vctx.lineWidth = Math.max(1.5, w * .025); vctx.lineJoin = 'round';
+  vctx.beginPath();
+  vctx.moveTo(-w / 2, 0); vctx.lineTo(-w / 2, -h * .25); vctx.lineTo(-w * .52, -h * .95); vctx.lineTo(-w * .26, -h * .5);
+  vctx.lineTo(0, -h * 1.08); vctx.lineTo(w * .26, -h * .5); vctx.lineTo(w * .52, -h * .95); vctx.lineTo(w / 2, -h * .25); vctx.lineTo(w / 2, 0); vctx.closePath();
+  vctx.fill(); vctx.shadowBlur = 0; vctx.stroke();
+  // 띠
+  vctx.fillStyle = 'rgba(140,80,0,.35)'; vctx.fillRect(-w / 2, -h * .25, w, h * .07);
+  // 꼭대기 구슬
+  for (const [x, y] of [[-w * .52, -h * .95], [0, -h * 1.08], [w * .52, -h * .95]]) {
+    vctx.fillStyle = '#fff2a8'; vctx.beginPath(); vctx.arc(x, y, w * .055, 0, Math.PI * 2); vctx.fill(); vctx.stroke();
+  }
+  // 보석
+  [['#ff2d55', -w * .28], ['#2d8cff', 0], ['#20d47a', w * .28]].forEach(([c, x]) => {
+    const jr = w * .065; vctx.fillStyle = c; vctx.beginPath(); vctx.ellipse(x, -h * .12, jr * 1.1, jr, 0, 0, Math.PI * 2); vctx.fill();
+    vctx.fillStyle = 'rgba(255,255,255,.7)'; vctx.beginPath(); vctx.arc(x - jr * .35, -h * .12 - jr * .35, jr * .3, 0, Math.PI * 2); vctx.fill();
+  });
+  // 반짝임
+  if (!small && t >= 1) for (let i = 0; i < 4; i++) {
+    const ph = (now / 700 + i / 4) % 1, a = Math.sin(ph * Math.PI), sx = Math.cos(i * 1.9) * w * .7, sy = -h * .6 + Math.sin(i * 2.7) * h * .6, s = w * .07 * a;
+    vctx.fillStyle = `rgba(255,255,255,${a})`; vctx.beginPath(); vctx.moveTo(sx, sy - s * 2); vctx.lineTo(sx + s * .5, sy); vctx.lineTo(sx, sy + s * 2); vctx.lineTo(sx - s * .5, sy); vctx.closePath(); vctx.fill();
+    vctx.beginPath(); vctx.moveTo(sx - s * 2, sy); vctx.lineTo(sx, sy + s * .5); vctx.lineTo(sx + s * 2, sy); vctx.lineTo(sx, sy - s * .5); vctx.closePath(); vctx.fill();
+  }
+  vctx.restore();
+}
 
 /* =================== 렌더링 =================== */
-function brackets(x, y, w, h, len, lw, col) {
-  vctx.strokeStyle = col; vctx.lineWidth = lw; vctx.lineCap = 'round'; vctx.beginPath(); const l = Math.min(len, w / 3, h / 3);
+function brackets(x, y, w, h, len, lw, col, dash) {
+  vctx.strokeStyle = col; vctx.lineWidth = lw; vctx.lineCap = 'round'; vctx.setLineDash(dash || []); vctx.beginPath(); const l = Math.min(len, w / 3, h / 3);
   vctx.moveTo(x, y + l); vctx.lineTo(x, y); vctx.lineTo(x + l, y); vctx.moveTo(x + w - l, y); vctx.lineTo(x + w, y); vctx.lineTo(x + w, y + l);
-  vctx.moveTo(x + w, y + h - l); vctx.lineTo(x + w, y + h); vctx.lineTo(x + w - l, y + h); vctx.moveTo(x + l, y + h); vctx.lineTo(x, y + h); vctx.lineTo(x, y + h - l); vctx.stroke();
+  vctx.moveTo(x + w, y + h - l); vctx.lineTo(x + w, y + h); vctx.lineTo(x + w - l, y + h); vctx.moveTo(x + l, y + h); vctx.lineTo(x, y + h); vctx.lineTo(x, y + h - l); vctx.stroke(); vctx.setLineDash([]);
 }
 function render(now) {
   const dpr = Math.min(2, devicePixelRatio || 1), W = Math.round(innerWidth * dpr), H = Math.round(innerHeight * dpr);
   if (view.width !== W || view.height !== H) { view.width = W; view.height = H; S.cam = null; }
-  vctx.fillStyle = '#000'; vctx.fillRect(0, 0, W, H);
-  if (!video.videoWidth) return;
+  vctx.fillStyle = '#05060c'; vctx.fillRect(0, 0, W, H);
+  if (!srcW()) return;
   const tgt = camTarget();
   if (!S.cam) S.cam = { ...tgt };
-  const k = S.camSpeed; for (const key of ['x', 'y', 'w', 'h']) S.cam[key] += (tgt[key] - S.cam[key]) * k;
-  const c = S.cam;
-  vctx.save(); vctx.translate(W, 0); vctx.scale(-1, 1); vctx.drawImage(video, c.x, c.y, c.w, c.h, 0, 0, W, H); vctx.restore();
+  for (const key of ['x', 'y', 'w', 'h']) S.cam[key] += (tgt[key] - S.cam[key]) * S.camSpeed;
+  const c = S.cam, sc = W / c.w;
+  vctx.save(); if (mirror()) { vctx.translate(W, 0); vctx.scale(-1, 1); }
+  vctx.drawImage(src(), -c.x * sc, -c.y * sc, srcW() * sc, srcH() * sc); vctx.restore();
 
-  const vw = video.videoWidth, vh = video.videoHeight, u = Math.min(W, H) / 40;
+  const u = Math.min(W, H) / 40;
+  if (S.scanning) { // 사진 검사 중 레이저 스캔
+    const y = ((now / 4) % (H + 200)) - 100; const g = vctx.createLinearGradient(0, y - 80, 0, y);
+    g.addColorStop(0, 'rgba(34,228,255,0)'); g.addColorStop(1, 'rgba(34,228,255,.35)'); vctx.fillStyle = g; vctx.fillRect(0, y - 80, W, 80);
+    vctx.fillStyle = 'rgba(34,228,255,.9)'; vctx.fillRect(0, y, W, 2 * dpr);
+  }
   if (S.mode === 'idle') {
-    // 인식된 얼굴에 은은한 표시
-    for (const t of S.tracks) {
-      if (!t.pid || now - t.lastHit > VIS_MS) continue;
-      const p = getP(t.pid); const [x1, y1] = toScreen((t.box.x + t.box.w) * vw, t.box.y * vh), [x2, y2] = toScreen(t.box.x * vw, (t.box.y + t.box.h) * vh);
-      const w = x2 - x1, h = y2 - y1, ph = (now / 1600) % 1;
-      vctx.strokeStyle = `rgba(34,228,255,${(1 - ph) * .45})`; vctx.lineWidth = 2 * dpr;
-      vctx.beginPath(); vctx.arc(x1 + w / 2, y1 + h / 2, Math.max(w, h) * (.6 + ph * .5), 0, Math.PI * 2); vctx.stroke();
-      brackets(x1, y1, w, h, u * 1.2, 2.5 * dpr, p.picked ? 'rgba(255,201,60,.9)' : 'rgba(34,228,255,.9)');
-      if (p.picked) { vctx.font = `${u * 1.3}px serif`; vctx.textAlign = 'center'; vctx.fillText('⭐', x1 + w / 2, y1 - u * .5); }
+    const ids = new Set(visible(now).map(p => p.id));
+    for (const p of S.people) {
+      const b = boxOf(p); if (!b) continue;
+      if (!S.photo && !ids.has(p.id)) continue;
+      const r = boxScreen(b), ph = (now / 1600) % 1;
+      if (p.excluded) {
+        brackets(r.x, r.y, r.w, r.h, u, 2 * dpr, 'rgba(160,160,170,.8)', [5 * dpr, 5 * dpr]);
+        vctx.strokeStyle = 'rgba(255,80,80,.8)'; vctx.lineWidth = 2.5 * dpr; vctx.beginPath();
+        vctx.moveTo(r.x + r.w * .25, r.y + r.h * .25); vctx.lineTo(r.x + r.w * .75, r.y + r.h * .75); vctx.moveTo(r.x + r.w * .75, r.y + r.h * .25); vctx.lineTo(r.x + r.w * .25, r.y + r.h * .75); vctx.stroke();
+        continue;
+      }
+      vctx.strokeStyle = `rgba(34,228,255,${(1 - ph) * .4})`; vctx.lineWidth = 2 * dpr;
+      vctx.beginPath(); vctx.arc(r.x + r.w / 2, r.y + r.h / 2, Math.max(r.w, r.h) * (.6 + ph * .5), 0, Math.PI * 2); vctx.stroke();
+      brackets(r.x, r.y, r.w, r.h, u * 1.2, 2.5 * dpr, p.picked ? 'rgba(255,201,60,.95)' : 'rgba(34,228,255,.9)');
+      if (p.picked) { if (S.crown) drawCrown(r, now, 1, true); else { vctx.font = `${Math.max(u, r.w * .4)}px serif`; vctx.textAlign = 'center'; vctx.fillText('⭐', r.x + r.w / 2, r.y - u * .4); } }
     }
   } else {
     // 추첨 중: 비추는 얼굴 주변만 밝게(스포트라이트), 나머지는 어둡게
-    const t = S.focusPid && trackOfP(S.focusPid), b = t ? t.box : getP(S.focusPid)?.lastBox;
-    let sx = W / 2, sy = H / 2, r = Math.min(W, H) * .3;
-    if (b) { const [x1, y1] = toScreen((b.x + b.w) * vw, b.y * vh), [x2, y2] = toScreen(b.x * vw, (b.y + b.h) * vh); sx = (x1 + x2) / 2; sy = (y1 + y2) / 2; r = Math.max(x2 - x1, y2 - y1) * .95;
-      const g = vctx.createRadialGradient(sx, sy, r * .8, sx, sy, r * 2.6); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, S.mode === 'win' ? 'rgba(0,0,0,.55)' : 'rgba(0,0,0,.82)');
+    const b = boxOf(getP(S.focusPid));
+    if (b) {
+      const r = boxScreen(b), sx = r.x + r.w / 2, sy = r.y + r.h / 2, rad = Math.max(r.w, r.h) * .95;
+      const g = vctx.createRadialGradient(sx, sy, rad * .8, sx, sy, rad * 2.6); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, S.mode === 'win' ? 'rgba(0,0,0,.55)' : 'rgba(0,0,0,.82)');
       vctx.fillStyle = g; vctx.fillRect(0, 0, W, H);
       const col = S.mode === 'win' ? '255,201,60' : '255,59,92', pulse = S.mode === 'win' ? 1 : .6 + .4 * Math.sin(now / 90);
       vctx.shadowColor = `rgba(${col},1)`; vctx.shadowBlur = 30 * dpr;
-      brackets(x1 - r * .25, y1 - r * .25, x2 - x1 + r * .5, y2 - y1 + r * .5, u * 3, 6 * dpr, `rgba(${col},${pulse})`); vctx.shadowBlur = 0;
+      if (!(S.mode === 'win' && S.crown)) brackets(r.x - rad * .25, r.y - rad * .25, r.w + rad * .5, r.h + rad * .5, u * 3, 6 * dpr, `rgba(${col},${pulse})`);
+      vctx.shadowBlur = 0;
       if (S.mode !== 'win') { // 조준선
         vctx.strokeStyle = 'rgba(255,59,92,.5)'; vctx.lineWidth = 1.5 * dpr; vctx.beginPath();
-        vctx.moveTo(sx, 0); vctx.lineTo(sx, y1 - r * .4); vctx.moveTo(sx, y2 + r * .4); vctx.lineTo(sx, H);
-        vctx.moveTo(0, sy); vctx.lineTo(x1 - r * .4, sy); vctx.moveTo(x2 + r * .4, sy); vctx.lineTo(W, sy); vctx.stroke();
+        vctx.moveTo(sx, 0); vctx.lineTo(sx, r.y - rad * .4); vctx.moveTo(sx, r.y + r.h + rad * .4); vctx.lineTo(sx, H);
+        vctx.moveTo(0, sy); vctx.lineTo(r.x - rad * .4, sy); vctx.moveTo(r.x + r.w + rad * .4, sy); vctx.lineTo(W, sy); vctx.stroke();
       }
+      if (S.mode === 'win' && S.crown) drawCrown(r, now, (now - S.winT0 - 350) / 900);
     }
     // 필름 레터박스
     const lb = H * .07; vctx.fillStyle = '#000'; vctx.fillRect(0, 0, W, lb); vctx.fillRect(0, H - lb, W, lb);
@@ -324,19 +451,19 @@ function render(now) {
 }
 
 /* =================== 추첨 =================== */
-const sleep = ms => new Promise(r => setTimeout(r, ms));
 const cap = $('#cap');
 function caption(t, cls = '') { cap.className = ''; void cap.offsetWidth; cap.textContent = t; if (t) cap.className = 'on ' + cls; }
 function focus(pid, mult, speed) { S.focusPid = pid; S.zoomMult = mult; S.camSpeed = speed; }
 function flash() { const f = $('#flash'); f.classList.remove('go'); void f.offsetWidth; f.classList.add('go'); }
+function showHint(t) { const h = $('#hint'); h.textContent = t; h.classList.toggle('on', !!t && S.photo && S.mode === 'idle'); }
 
 async function draw() {
-  if (S.mode === 'intro' || S.mode === 'roulette') return;
+  if (S.mode === 'intro' || S.mode === 'roulette' || S.scanning) return;
   ac();
   let pool = visible().filter(p => !p.picked);
   if (!pool.length && visible().length) { S.people.forEach(p => p.picked = false); toast('모두 한 번씩 뽑혔어요 — 처음부터 다시!'); pool = visible(); }
-  if (!pool.length) { sfx.err(); toast('화면에 얼굴이 보이지 않아요. 카메라를 바라봐 주세요!'); return; }
-  S.mode = 'intro'; $('#bar').classList.add('hide'); caption(''); focus(null, 2.6, .06);
+  if (!pool.length) { sfx.err(); toast(S.photo ? '사진에서 추첨할 얼굴이 없어요. 얼굴을 눌러 추가해 주세요.' : '화면에 얼굴이 보이지 않아요. 카메라를 바라봐 주세요!'); return; }
+  S.mode = 'intro'; $('#bar').classList.add('hide'); $('#hint').classList.remove('on'); caption(''); focus(null, 2.6, .06);
 
   // 1) 긴장 고조
   sfx.riser(1.6); caption('누가 발표할까요…?'); await sleep(1700);
@@ -368,13 +495,14 @@ async function draw() {
   focus(winner.id, 2.6, .14); caption('두근… 두근…'); sfx.drumroll(2.2);
   for (let i = 0; i < 3; i++) { sfx.heart(.7); await sleep(650); }
 
-  // 4) 당첨! 천천히 확대
-  S.mode = 'win'; winner.picked = true; focus(winner.id, 1.7, .035);
-  flash(); sfx.hit(); sfx.fanfare(); caption('🎤 발표자 당첨!', 'win'); confetti();
+  // 4) 당첨! 천천히 확대 (+ 왕관)
+  S.mode = 'win'; S.winT0 = performance.now(); winner.picked = true; focus(winner.id, S.crown ? 3.1 : 1.7, .035);
+  flash(); sfx.hit(); sfx.fanfare(); if (S.crown) sfx.crown(1.05);
+  caption(S.crown ? '👑 오늘의 발표자!' : '🎤 발표자 당첨!', 'win'); confetti();
   $('#drawBtn').textContent = '🎲 다음 발표자'; await sleep(1800);
   $('#bar').classList.remove('hide');
 }
-function backToIdle() { if (S.mode !== 'win') return; S.mode = 'idle'; focus(null, 2.6, .06); caption(''); parts = []; }
+function backToIdle() { if (S.mode !== 'win') return; S.mode = 'idle'; focus(null, 2.6, .06); caption(''); parts = []; if (S.photo) showHint('얼굴을 누르면 제외 · 빈 곳을 누르면 얼굴 추가'); }
 
 /* =================== 꽃가루 =================== */
 const cf = $('#confetti'), cc = cf.getContext('2d'); let parts = [];
@@ -393,32 +521,83 @@ function drawConfetti() {
   parts = parts.filter(p => p.y < innerHeight + 40);
 }
 
-/* =================== 시작 / 조작 =================== */
+/* =================== 시작 / 전환 =================== */
 let toastT;
-function toast(m) { const t = $('#toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 2600); }
-async function start() {
-  ac(); const btn = $('#startBtn'); btn.disabled = true; btn.textContent = '⏳ 준비 중…';
+function toast(m, ms = 2600) { const t = $('#toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), ms); }
+function resetPeople() { S.people = []; S.tracks = []; S.focusPid = null; S.mode = 'idle'; S.cam = null; caption(''); parts = []; $('#drawBtn').textContent = '🎲 발표자 뽑기'; }
+function stopCamera() { if (S.stream) S.stream.getTracks().forEach(t => t.stop()); S.stream = null; video.srcObject = null; }
+function syncModeButtons() { $('#camBtn').classList.toggle('on', !S.photo); $('#photoBtn').classList.toggle('on', S.photo); $('#crownBtn').classList.toggle('off', !S.crown); }
+
+async function startCamera() {
+  ac(); const btn = $('#startBtn'); btn.disabled = true;
   try {
-    S.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
-    video.srcObject = S.stream; await video.play();
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+    stopCamera(); S.stream = stream; S.photo = false; S.img = null; resetPeople();
+    video.srcObject = stream; await video.play();
+    toast('얼굴 인식 준비 중…'); await loadModel(); toast('카메라를 바라봐 주세요 👀');
+    $('#start').style.display = 'none'; $('#bar').classList.remove('hide'); showHint(''); syncModeButtons();
   } catch (e) {
-    btn.disabled = false; btn.textContent = '📷 카메라 시작';
-    toast(e.name === 'NotAllowedError' ? '카메라 권한을 허용해 주세요 (주소창 왼쪽 아이콘)' : '카메라를 시작할 수 없어요: ' + e.message); return;
-  }
-  try { if (!S.detector) await loadModel(); }
-  catch (e) { console.error(e); btn.disabled = false; btn.textContent = '📷 카메라 시작'; toast('얼굴 인식 모델을 불러오지 못했어요. 인터넷 연결을 확인해 주세요.'); return; }
-  $('#start').style.display = 'none'; $('#bar').classList.remove('hide');
+    console.error(e);
+    toast(e.name === 'NotAllowedError' ? '카메라 권한을 허용해 주세요 (주소창 왼쪽 아이콘)' : e.name === 'NotFoundError' ? '연결된 카메라가 없어요. 사진으로 추첨해 보세요.' : '시작할 수 없어요: ' + e.message, 4000);
+  } finally { btn.disabled = false; }
 }
-$('#startBtn').onclick = start;
+async function loadPhoto(file) {
+  if (!file || !file.type.startsWith('image/')) { toast('사진 파일(jpg, png 등)을 골라 주세요'); return; }
+  if (S.mode === 'intro' || S.mode === 'roulette' || S.scanning) return;
+  ac();
+  const img = new Image(); const url = URL.createObjectURL(file);
+  try { await new Promise((ok, bad) => { img.onload = ok; img.onerror = bad; img.src = url; }); }
+  catch { toast('사진을 열 수 없어요'); URL.revokeObjectURL(url); return; }
+  if (S.img?.src?.startsWith('blob:')) URL.revokeObjectURL(S.img.src);
+  stopCamera(); S.photo = true; S.img = img; resetPeople();
+  $('#start').style.display = 'none'; $('#bar').classList.remove('hide'); syncModeButtons();
+  showHint('🔍 얼굴 찾는 중…'); S.scanning = true;
+  try { await loadModel(); } catch (e) { console.error(e); S.scanning = false; toast('얼굴 인식 모델을 불러오지 못했어요. 인터넷 연결을 확인해 주세요.', 4000); return; }
+  await scanPhoto();
+}
+
+$('#startBtn').onclick = startCamera;
+$('#startPhoto').onclick = () => $('#file').click();
+$('#photoBtn').onclick = () => $('#file').click();
+$('#camBtn').onclick = () => { if (S.mode === 'intro' || S.mode === 'roulette') return; if (S.photo || !S.stream) startCamera(); };
+$('#file').onchange = e => { loadPhoto(e.target.files[0]); e.target.value = ''; };
 $('#drawBtn').onclick = () => { if (S.mode === 'win') backToIdle(); draw(); };
+$('#crownBtn').onclick = () => { S.crown = !S.crown; try { localStorage.setItem('pp_crown', S.crown ? '1' : '0'); } catch {} syncModeButtons(); toast(S.crown ? '👑 왕관 켜짐 — 당첨자에게 왕관을 씌워요' : '왕관 꺼짐'); };
 $('#fs').onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.();
-view.onclick = backToIdle;
+
+// 사진에서 얼굴 누르기: 제외/복귀, 빈 곳 누르면 직접 추가
+view.onclick = e => {
+  if (S.mode === 'win') return backToIdle();
+  if (!S.photo || S.mode !== 'idle' || S.scanning || !S.cam) return;
+  const dpr = Math.min(2, devicePixelRatio || 1), [px, py] = fromScreen(e.clientX * dpr, e.clientY * dpr);
+  const iw = srcW(), ih = srcH(), nx = px / iw, ny = py / ih;
+  const hit = S.people.find(p => { const b = p.lastBox, m = .15; return nx > b.x - b.w * m && nx < b.x + b.w * (1 + m) && ny > b.y - b.h * m && ny < b.y + b.h * (1 + m); });
+  sfx.click();
+  if (hit) {
+    if (hit.manual) { S.people = S.people.filter(p => p !== hit); toast('추가한 얼굴을 지웠어요'); }
+    else { hit.excluded = !hit.excluded; toast(hit.excluded ? '이 얼굴은 추첨에서 빠져요' : '다시 추첨에 넣었어요'); }
+    return;
+  }
+  if (nx < 0 || ny < 0 || nx > 1 || ny > 1) return;
+  const sizes = S.people.filter(p => !p.manual).map(p => p.lastBox.h * ih).sort((a, b) => a - b);
+  const sz = sizes.length ? sizes[sizes.length >> 1] : Math.min(iw, ih) * .08;
+  S.people.push({ id: S.nextPid++, picked: false, excluded: false, manual: true, trackId: null, lastBox: { x: nx - sz / 2 / iw, y: ny - sz / 2 / ih, w: sz / iw, h: sz / ih } });
+  toast('얼굴을 직접 추가했어요 (다시 누르면 지워져요)');
+};
+// 사진 끌어다 놓기
+let dragN = 0;
+addEventListener('dragenter', e => { if ([...e.dataTransfer.types].includes('Files')) { dragN++; $('#drop').classList.add('on'); } });
+addEventListener('dragleave', () => { if (--dragN <= 0) { dragN = 0; $('#drop').classList.remove('on'); } });
+addEventListener('dragover', e => e.preventDefault());
+addEventListener('drop', e => { e.preventDefault(); dragN = 0; $('#drop').classList.remove('on'); loadPhoto(e.dataTransfer.files[0]); });
+
 addEventListener('keydown', e => {
-  if ($('#start').style.display !== 'none') { if (e.code === 'Space' || e.key === 'Enter') { e.preventDefault(); start(); } return; }
+  if ($('#start').style.display !== 'none') { if (e.code === 'Space' || e.key === 'Enter') { e.preventDefault(); startCamera(); } return; }
   if (e.code === 'Space' || e.key === 'Enter') { e.preventDefault(); if (S.mode === 'win') backToIdle(); draw(); }
   else if (e.key === 'f' || e.key === 'F') $('#fs').click();
   else if (e.key === 'Escape') backToIdle();
 });
+syncModeButtons();
 
 let lastCount = 0;
 function loop(now) {
